@@ -38,7 +38,7 @@ _CONFIG_DEFAULTS: dict = {
     "max_line_bytes": 1_000_000,
     "max_days": None,
     "launch_mode": "subprocess",
-    "browse_layout": "overlay",  # "overlay" | "side" | "bottom"
+    "browse_layout": "panel",  # "panel" | "overlay"
 }
 
 
@@ -68,7 +68,11 @@ def _load_config() -> dict:
             return dict(_CONFIG_DEFAULTS)
         merged = dict(_CONFIG_DEFAULTS)
         merged.update({k: v for k, v in data.items() if k in _CONFIG_DEFAULTS})
-        return _validate_config_types(merged)
+        result = _validate_config_types(merged)
+        # Migrate legacy browse_layout values from 0.2.0.
+        if result["browse_layout"] in ("side", "bottom"):
+            result["browse_layout"] = "panel"
+        return result
     except FileNotFoundError:
         try:
             os.makedirs(os.path.dirname(_CONFIG_FILE), exist_ok=True)
@@ -90,7 +94,7 @@ MAX_FILE_BYTES: int = _cfg["max_file_bytes"]
 MAX_LINE_BYTES: int = _cfg["max_line_bytes"]
 _MAX_DAYS: int | None = _cfg["max_days"]
 _LAUNCH_MODE: str = _cfg["launch_mode"]
-_BROWSE_LAYOUT: str = _cfg["browse_layout"]  # "overlay" | "side" | "bottom"
+_BROWSE_LAYOUT: str = _cfg["browse_layout"]  # "panel" | "overlay"
 
 _MAX_CHAT_MSG_CHARS: int = 3000  # max chars shown per message in the chat browser
 
@@ -277,23 +281,29 @@ def load_chat_messages(filepath: str) -> list[dict]:
     return messages
 
 
-def load_filter() -> tuple[set[str], set[str]]:
-    """Return (hidden_projects, pinned_projects)."""
+def load_filter() -> tuple[set[str], set[str], str]:
+    """Return (hidden_projects, pinned_projects, panel_position)."""
     try:
         with open(FILTER_FILE, encoding="utf-8") as fh:
             data = json.load(fh)
-        return set(data.get("hidden", [])), set(data.get("pinned", []))
+        pos = data.get("panel_position", "side")
+        if pos not in ("side", "bottom"):
+            pos = "side"
+        return set(data.get("hidden", [])), set(data.get("pinned", [])), pos
     except (OSError, json.JSONDecodeError, AttributeError):
-        return set(), set()
+        return set(), set(), "side"
 
 
-def save_filter(hidden: set[str], pinned: set[str]) -> None:
+def save_filter(hidden: set[str], pinned: set[str], panel_position: str = "side") -> None:
     """Atomically write filter state to disk."""
     try:
         dir_ = os.path.dirname(FILTER_FILE)
         os.makedirs(dir_, exist_ok=True)
         with tempfile.NamedTemporaryFile("w", dir=dir_, delete=False, encoding="utf-8", suffix=".tmp") as tmp:
-            json.dump({"hidden": sorted(hidden), "pinned": sorted(pinned)}, tmp)
+            json.dump(
+                {"hidden": sorted(hidden), "pinned": sorted(pinned), "panel_position": panel_position},
+                tmp,
+            )
             tmp_path = tmp.name
         os.replace(tmp_path, FILTER_FILE)
     except OSError:
@@ -387,17 +397,18 @@ class SessionBrowser(App):
         text-align: right;
     }
 
-    /* ── side layout ─────────────────────────────────────────── */
+    /* ── panel layout ────────────────────────────────────────── */
     #browse-split {
         height: 1fr;
     }
 
+    /* side (horizontal): equal-width columns */
     #browse-split > #table {
         width: 1fr;
         height: 100%;
     }
 
-    #chat-panel.side {
+    #browse-split > #chat-panel {
         width: 1fr;
         height: 100%;
         border-left: tall $primary-darken-2;
@@ -405,15 +416,22 @@ class SessionBrowser(App):
         background: $surface;
     }
 
-    /* ── bottom layout ───────────────────────────────────────── */
-    #chat-panel.bottom {
+    /* bottom (vertical): table takes remaining height, panel is fixed */
+    #browse-split.panel-bottom > #table {
+        width: 100%;
+        height: 1fr;
+    }
+
+    #browse-split.panel-bottom > #chat-panel {
+        width: 100%;
         height: 40%;
         border-top: tall $primary-darken-2;
+        border-left: none;
         padding: 0 1;
         background: $surface;
     }
 
-    /* shared chat panel focus ring */
+    /* focus ring */
     #chat-panel:focus {
         border: tall $accent;
     }
@@ -426,7 +444,8 @@ class SessionBrowser(App):
         Binding("x", "toggle_hide", "Hide project", show=True),
         Binding("p", "toggle_pin", "Pin project", show=True),
         Binding("c", "clear_filters", "Clear filters", show=True),
-        Binding("v", "browse_chat", "Browse chat", show=True),
+        Binding("v", "browse_chat", "Chat", show=True),
+        Binding("b", "toggle_panel_position", "Side/Bottom", show=(_BROWSE_LAYOUT == "panel")),
     ]
 
     def __init__(self):
@@ -435,18 +454,18 @@ class SessionBrowser(App):
         self.filtered: list[dict] = []
         self.hidden_projects: set[str] = set()
         self.pinned_projects: set[str] = set()
-        self._chat_panel_uuid: str | None = None  # last session loaded into panel
+        self.panel_visible: bool = False
+        self.panel_position: str = "side"
+        self._chat_panel_uuid: str | None = None
 
     def compose(self) -> ComposeResult:
         yield Input(placeholder="  Search sessions...", id="search-bar")
-        if _BROWSE_LAYOUT == "side":
+        if _BROWSE_LAYOUT == "panel":
             with Horizontal(id="browse-split"):
                 yield DataTable(id="table", cursor_type="row", zebra_stripes=True)
-                yield RichLog(id="chat-panel", classes="side", highlight=False, markup=False, wrap=True)
-        else:
+                yield RichLog(id="chat-panel", highlight=False, markup=False, wrap=True)
+        else:  # overlay
             yield DataTable(id="table", cursor_type="row", zebra_stripes=True)
-            if _BROWSE_LAYOUT == "bottom":
-                yield RichLog(id="chat-panel", classes="bottom", highlight=False, markup=False, wrap=True)
         yield Label("", id="status")
         yield Footer()
 
@@ -457,10 +476,26 @@ class SessionBrowser(App):
         table = self.query_one(DataTable)
         table.add_columns("Age", "Project", "Session")
 
-        self.hidden_projects, self.pinned_projects = load_filter()
+        self.hidden_projects, self.pinned_projects, self.panel_position = load_filter()
         self.all_sessions = load_sessions()
         self._refilter_and_refresh()
+
+        if _BROWSE_LAYOUT == "panel":
+            panel = self.query_one("#chat-panel", RichLog)
+            panel.display = False
+            self._apply_panel_position()
+
         table.focus()
+
+    def _apply_panel_position(self) -> None:
+        """Update the browse-split container layout to match self.panel_position."""
+        split = self.query_one("#browse-split", Horizontal)
+        if self.panel_position == "bottom":
+            split.add_class("panel-bottom")
+            split.styles.layout = "vertical"
+        else:
+            split.remove_class("panel-bottom")
+            split.styles.layout = "horizontal"
 
     def _apply_filters(self, search: str = "") -> None:
         sessions = self.all_sessions
@@ -503,7 +538,7 @@ class SessionBrowser(App):
         else:
             target.add(proj)
             other.discard(proj)
-        save_filter(self.hidden_projects, self.pinned_projects)
+        save_filter(self.hidden_projects, self.pinned_projects, self.panel_position)
         self._refilter_and_refresh()
 
     @on(Input.Changed, "#search-bar")
@@ -515,6 +550,13 @@ class SessionBrowser(App):
         self.query_one("#search-bar", Input).focus()
 
     def action_clear_search(self) -> None:
+        if (
+            _BROWSE_LAYOUT == "panel"
+            and self.panel_visible
+            and self.focused is self.query_one("#chat-panel", RichLog)
+        ):
+            self.query_one(DataTable).focus()
+            return
         inp = self.query_one("#search-bar", Input)
         inp.value = ""
         self.query_one(DataTable).focus()
@@ -532,7 +574,7 @@ class SessionBrowser(App):
     def action_clear_filters(self) -> None:
         self.hidden_projects.clear()
         self.pinned_projects.clear()
-        save_filter(self.hidden_projects, self.pinned_projects)
+        save_filter(self.hidden_projects, self.pinned_projects, self.panel_position)
         self._refilter_and_refresh()
 
     def _get_selected_session(self) -> dict | None:
@@ -549,7 +591,7 @@ class SessionBrowser(App):
 
     @on(DataTable.RowHighlighted)
     def on_row_highlighted(self, _event: DataTable.RowHighlighted) -> None:
-        if _BROWSE_LAYOUT in ("side", "bottom"):
+        if _BROWSE_LAYOUT == "panel" and self.panel_visible:
             session = self._get_selected_session()
             if session:
                 self._populate_chat_panel(session)
@@ -564,13 +606,26 @@ class SessionBrowser(App):
 
     def action_browse_chat(self) -> None:
         session = self._get_selected_session()
-        if not session:
-            return
         if _BROWSE_LAYOUT == "overlay":
-            self.push_screen(ChatScreen(session))
-        else:
+            if session:
+                self.push_screen(ChatScreen(session))
+            return
+        # panel mode: toggle visibility
+        self.panel_visible = not self.panel_visible
+        panel = self.query_one("#chat-panel", RichLog)
+        panel.display = self.panel_visible
+        if self.panel_visible and session:
             self._populate_chat_panel(session)
-            self.query_one("#chat-panel", RichLog).focus()
+            panel.focus()
+        else:
+            self.query_one(DataTable).focus()
+
+    def action_toggle_panel_position(self) -> None:
+        if _BROWSE_LAYOUT != "panel":
+            return
+        self.panel_position = "bottom" if self.panel_position == "side" else "side"
+        self._apply_panel_position()
+        save_filter(self.hidden_projects, self.pinned_projects, self.panel_position)
 
 
 def _check_projects_dir() -> None:

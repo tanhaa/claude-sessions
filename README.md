@@ -40,7 +40,8 @@ uv run --extra dev pytest tests/ -q
 |-----|--------|
 | `↑/↓` | Navigate |
 | `Enter` | Resume session |
-| `v` | Browse chat history |
+| `v` | Show/hide chat panel |
+| `b` | Toggle panel position (side ↔ bottom) |
 | `/` | Search |
 | `x` | Hide/unhide current project |
 | `p` | Pin/unpin current project (focus mode) |
@@ -63,7 +64,7 @@ On first run, a config file is created at `~/.config/claude-sessions/config.json
   "max_line_bytes": 1000000,
   "max_days": null,
   "launch_mode": "subprocess",
-  "browse_layout": "overlay"
+  "browse_layout": "panel"
 }
 ```
 
@@ -76,5 +77,5 @@ On first run, a config file is created at `~/.config/claude-sessions/config.json
 | `max_line_bytes` | `1000000` | Skip lines larger than this (bytes) |
 | `max_days` | `null` | Hide sessions older than N days (`null` = show all) |
 | `launch_mode` | `"subprocess"` | `"subprocess"` returns to the TUI after claude exits; `"replace"` hands the terminal to claude and exits to shell when done |
-| `browse_layout` | `"overlay"` | Chat browser layout: `"overlay"` full-screen on `v`; `"side"` right panel auto-updating as you navigate; `"bottom"` bottom panel auto-updating as you navigate |
+| `browse_layout` | `"panel"` | `"panel"` shows a toggleable side/bottom chat panel (`v` to show/hide, `b` to move); `"overlay"` opens a full-screen reader |
 

@@ -150,10 +150,11 @@ class TestFilterRoundTrip:
 
         claude_sessions.save_filter(hidden, pinned)
 
-        loaded_hidden, loaded_pinned = claude_sessions.load_filter()
+        loaded_hidden, loaded_pinned, loaded_pos = claude_sessions.load_filter()
 
         assert loaded_hidden == hidden
         assert loaded_pinned == pinned
+        assert loaded_pos == "side"  # default when not saved
 
     def test_roundtrip_empty_sets(self, tmp_path, monkeypatch):
         """Empty hidden and pinned sets survive the round-trip."""
@@ -161,20 +162,21 @@ class TestFilterRoundTrip:
         monkeypatch.setattr(claude_sessions, "FILTER_FILE", str(filter_file))
 
         claude_sessions.save_filter(set(), set())
-        loaded_hidden, loaded_pinned = claude_sessions.load_filter()
+        loaded_hidden, loaded_pinned, _ = claude_sessions.load_filter()
 
         assert loaded_hidden == set()
         assert loaded_pinned == set()
 
     def test_load_filter_missing_file_returns_empty(self, tmp_path, monkeypatch):
-        """load_filter on a non-existent file returns two empty sets (no exception)."""
+        """load_filter on a non-existent file returns two empty sets and default position."""
         filter_file = tmp_path / "nonexistent" / "filters.json"
         monkeypatch.setattr(claude_sessions, "FILTER_FILE", str(filter_file))
 
-        hidden, pinned = claude_sessions.load_filter()
+        hidden, pinned, pos = claude_sessions.load_filter()
 
         assert hidden == set()
         assert pinned == set()
+        assert pos == "side"
 
     def test_save_creates_parent_directories(self, tmp_path, monkeypatch):
         """save_filter must create missing parent directories atomically."""
@@ -191,7 +193,7 @@ class TestFilterRoundTrip:
         filter_file.write_text("not valid json {{{", encoding="utf-8")
         monkeypatch.setattr(claude_sessions, "FILTER_FILE", str(filter_file))
 
-        hidden, pinned = claude_sessions.load_filter()
+        hidden, pinned, _ = claude_sessions.load_filter()
 
         assert hidden == set()
         assert pinned == set()
@@ -204,11 +206,34 @@ class TestFilterRoundTrip:
         claude_sessions.save_filter({"old-project"}, set())
         claude_sessions.save_filter({"new-project"}, {"pinned-project"})
 
-        hidden, pinned = claude_sessions.load_filter()
+        hidden, pinned, _ = claude_sessions.load_filter()
 
         assert hidden == {"new-project"}
         assert pinned == {"pinned-project"}
         assert "old-project" not in hidden
+
+    def test_panel_position_roundtrip(self, tmp_path, monkeypatch):
+        """panel_position is saved and restored correctly."""
+        filter_file = tmp_path / "filters.json"
+        monkeypatch.setattr(claude_sessions, "FILTER_FILE", str(filter_file))
+
+        claude_sessions.save_filter(set(), set(), "bottom")
+        _, _, pos = claude_sessions.load_filter()
+        assert pos == "bottom"
+
+        claude_sessions.save_filter(set(), set(), "side")
+        _, _, pos = claude_sessions.load_filter()
+        assert pos == "side"
+
+    def test_invalid_panel_position_defaults_to_side(self, tmp_path, monkeypatch):
+        """An unrecognized panel_position in the file falls back to 'side'."""
+        import json as _json
+        filter_file = tmp_path / "filters.json"
+        filter_file.write_text(_json.dumps({"panel_position": "diagonal"}), encoding="utf-8")
+        monkeypatch.setattr(claude_sessions, "FILTER_FILE", str(filter_file))
+
+        _, _, pos = claude_sessions.load_filter()
+        assert pos == "side"
 
     def test_real_config_never_touched(self, tmp_path, monkeypatch):
         """Verify the real FILTER_FILE path is not written during tests."""
