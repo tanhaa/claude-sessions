@@ -40,11 +40,12 @@ uv run --extra dev pytest tests/ -q
 |-----|--------|
 | `↑/↓` | Navigate |
 | `Enter` | Resume session |
+| `v` | Browse chat history |
 | `/` | Search |
 | `x` | Hide/unhide current project |
 | `p` | Pin/unpin current project (focus mode) |
 | `c` | Clear all filters |
-| `Esc` | Clear search |
+| `Esc` | Clear search / return to list |
 | `q` | Quit |
 
 Filters persist across runs in `~/.config/claude-sessions/filters.json`.
@@ -61,7 +62,8 @@ On first run, a config file is created at `~/.config/claude-sessions/config.json
   "max_file_bytes": 5000000,
   "max_line_bytes": 1000000,
   "max_days": null,
-  "launch_mode": "subprocess"
+  "launch_mode": "subprocess",
+  "browse_layout": "overlay"
 }
 ```
 
@@ -74,4 +76,5 @@ On first run, a config file is created at `~/.config/claude-sessions/config.json
 | `max_line_bytes` | `1000000` | Skip lines larger than this (bytes) |
 | `max_days` | `null` | Hide sessions older than N days (`null` = show all) |
 | `launch_mode` | `"subprocess"` | `"subprocess"` returns to the TUI after claude exits; `"replace"` hands the terminal to claude and exits to shell when done |
+| `browse_layout` | `"overlay"` | Chat browser layout: `"overlay"` full-screen on `v`; `"side"` right panel auto-updating as you navigate; `"bottom"` bottom panel auto-updating as you navigate |
 

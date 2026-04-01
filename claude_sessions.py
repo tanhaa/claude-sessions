@@ -1,7 +1,7 @@
 """
 Claude Session Browser — browse and resume Claude Code sessions across all projects.
 Usage: claude-sessions
-Controls: ↑/↓ navigate · Enter resume · / search · x hide project · p pin project · c clear filters · q quit
+Controls: ↑/↓ navigate · Enter resume · v browse chat · / search · x hide project · p pin project · c clear filters · q quit
 """
 from __future__ import annotations
 
@@ -19,7 +19,9 @@ from rich.text import Text
 from textual import on
 from textual.app import App, ComposeResult
 from textual.binding import Binding
-from textual.widgets import DataTable, Footer, Input, Label
+from textual.containers import Horizontal
+from textual.screen import Screen
+from textual.widgets import DataTable, Footer, Input, Label, RichLog
 
 
 PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
@@ -36,6 +38,7 @@ _CONFIG_DEFAULTS: dict = {
     "max_line_bytes": 1_000_000,
     "max_days": None,
     "launch_mode": "subprocess",
+    "browse_layout": "overlay",  # "overlay" | "side" | "bottom"
 }
 
 
@@ -87,6 +90,9 @@ MAX_FILE_BYTES: int = _cfg["max_file_bytes"]
 MAX_LINE_BYTES: int = _cfg["max_line_bytes"]
 _MAX_DAYS: int | None = _cfg["max_days"]
 _LAUNCH_MODE: str = _cfg["launch_mode"]
+_BROWSE_LAYOUT: str = _cfg["browse_layout"]  # "overlay" | "side" | "bottom"
+
+_MAX_CHAT_MSG_CHARS: int = 3000  # max chars shown per message in the chat browser
 
 _current_uid = os.getuid()
 
@@ -118,15 +124,15 @@ def decode_project_path(folder_name: str) -> str | None:
     return fallback if _is_under_home(fallback) else None
 
 
-def _extract_text(content: object) -> str:
-    """Extract plain text from a JSONL message content field, capped at MAX_PREVIEW chars."""
+def _extract_text(content: object, limit: int = MAX_PREVIEW) -> str:
+    """Extract plain text from a JSONL message content field, capped at *limit* chars."""
     if isinstance(content, list):
         for c in content:
             if isinstance(c, dict) and c.get("type") == "text":
                 raw = c.get("text", "")
-                return raw[:MAX_PREVIEW] if isinstance(raw, str) else ""
+                return raw[:limit] if isinstance(raw, str) else ""
     elif isinstance(content, str):
-        return content[:MAX_PREVIEW]
+        return content[:limit]
     return ""
 
 
@@ -202,6 +208,7 @@ def load_sessions() -> list[dict]:
                     "preview": first_msg,
                     "timestamp": timestamp,
                     "cwd": cwd,
+                    "filepath": filepath,
                 })
 
     sessions.sort(key=lambda s: s["timestamp"], reverse=True)
@@ -238,6 +245,38 @@ def format_age(ts_str: str) -> str:
         return ts_str[:10]
 
 
+def load_chat_messages(filepath: str) -> list[dict]:
+    """Load all conversation messages from a session JSONL file for the chat browser."""
+    messages = []
+    bytes_read = 0
+    try:
+        with open(filepath, encoding="utf-8", errors="replace") as fh:
+            for raw in fh:
+                bytes_read += len(raw)
+                if bytes_read > MAX_FILE_BYTES:
+                    break
+                if len(raw) > MAX_LINE_BYTES:
+                    continue
+                try:
+                    obj = json.loads(raw)
+                except json.JSONDecodeError:
+                    continue
+                if obj.get("isMeta"):
+                    continue
+                role = obj.get("type")
+                if role not in ("user", "assistant"):
+                    continue
+                text = _extract_text(obj.get("message", {}).get("content", ""), _MAX_CHAT_MSG_CHARS)
+                if not text:
+                    continue
+                if role == "user" and (text.startswith("<local-command") or text.startswith("<command")):
+                    continue
+                messages.append({"role": role, "text": text})
+    except OSError:
+        pass
+    return messages
+
+
 def load_filter() -> tuple[set[str], set[str]]:
     """Return (hidden_projects, pinned_projects)."""
     try:
@@ -259,6 +298,53 @@ def save_filter(hidden: set[str], pinned: set[str]) -> None:
         os.replace(tmp_path, FILTER_FILE)
     except OSError:
         pass
+
+
+def _render_chat_into(log: RichLog, messages: list[dict]) -> None:
+    """Write formatted chat messages into a RichLog widget."""
+    if not messages:
+        log.write(Text("(no messages in this session)"))
+        return
+    for i, msg in enumerate(messages):
+        if i > 0:
+            log.write(Text(""))
+        label = "You" if msg["role"] == "user" else "Claude"
+        log.write(Text(f"─── {label} " + "─" * max(0, 44 - len(label)), style="bold"))
+        log.write(Text(msg["text"]))
+
+
+class ChatScreen(Screen):
+    """Full-screen chat browser for a single session (overlay mode)."""
+
+    CSS = """
+    #chat-title {
+        height: 1;
+        background: $primary-darken-2;
+        color: $text;
+        padding: 0 1;
+        text-style: bold;
+    }
+    #chat-log {
+        height: 1fr;
+        padding: 0 1;
+    }
+    """
+
+    BINDINGS = [Binding("escape", "dismiss", "Back", show=True)]
+
+    def __init__(self, session: dict) -> None:
+        super().__init__()
+        self._session = session
+
+    def compose(self) -> ComposeResult:
+        title = f"{self._session['project']}  ·  {self._session['preview'][:80]}"
+        yield Label(Text(title), id="chat-title")
+        yield RichLog(id="chat-log", highlight=False, markup=False, wrap=True)
+        yield Footer()
+
+    def on_mount(self) -> None:
+        log = self.query_one(RichLog)
+        _render_chat_into(log, load_chat_messages(self._session["filepath"]))
 
 
 class SessionBrowser(App):
@@ -300,6 +386,37 @@ class SessionBrowser(App):
         padding: 0 1;
         text-align: right;
     }
+
+    /* ── side layout ─────────────────────────────────────────── */
+    #browse-split {
+        height: 1fr;
+    }
+
+    #browse-split > #table {
+        width: 1fr;
+        height: 100%;
+    }
+
+    #chat-panel.side {
+        width: 1fr;
+        height: 100%;
+        border-left: tall $primary-darken-2;
+        padding: 0 1;
+        background: $surface;
+    }
+
+    /* ── bottom layout ───────────────────────────────────────── */
+    #chat-panel.bottom {
+        height: 40%;
+        border-top: tall $primary-darken-2;
+        padding: 0 1;
+        background: $surface;
+    }
+
+    /* shared chat panel focus ring */
+    #chat-panel:focus {
+        border: tall $accent;
+    }
     """
 
     BINDINGS = [
@@ -309,6 +426,7 @@ class SessionBrowser(App):
         Binding("x", "toggle_hide", "Hide project", show=True),
         Binding("p", "toggle_pin", "Pin project", show=True),
         Binding("c", "clear_filters", "Clear filters", show=True),
+        Binding("v", "browse_chat", "Browse chat", show=True),
     ]
 
     def __init__(self):
@@ -317,10 +435,18 @@ class SessionBrowser(App):
         self.filtered: list[dict] = []
         self.hidden_projects: set[str] = set()
         self.pinned_projects: set[str] = set()
+        self._chat_panel_uuid: str | None = None  # last session loaded into panel
 
     def compose(self) -> ComposeResult:
         yield Input(placeholder="  Search sessions...", id="search-bar")
-        yield DataTable(id="table", cursor_type="row", zebra_stripes=True)
+        if _BROWSE_LAYOUT == "side":
+            with Horizontal(id="browse-split"):
+                yield DataTable(id="table", cursor_type="row", zebra_stripes=True)
+                yield RichLog(id="chat-panel", classes="side", highlight=False, markup=False, wrap=True)
+        else:
+            yield DataTable(id="table", cursor_type="row", zebra_stripes=True)
+            if _BROWSE_LAYOUT == "bottom":
+                yield RichLog(id="chat-panel", classes="bottom", highlight=False, markup=False, wrap=True)
         yield Label("", id="status")
         yield Footer()
 
@@ -420,6 +546,31 @@ class SessionBrowser(App):
         session = self._get_selected_session()
         if session:
             self.exit(result=(session["uuid"], session["cwd"]))
+
+    @on(DataTable.RowHighlighted)
+    def on_row_highlighted(self, _event: DataTable.RowHighlighted) -> None:
+        if _BROWSE_LAYOUT in ("side", "bottom"):
+            session = self._get_selected_session()
+            if session:
+                self._populate_chat_panel(session)
+
+    def _populate_chat_panel(self, session: dict) -> None:
+        if session["uuid"] == self._chat_panel_uuid:
+            return
+        self._chat_panel_uuid = session["uuid"]
+        panel = self.query_one("#chat-panel", RichLog)
+        panel.clear()
+        _render_chat_into(panel, load_chat_messages(session["filepath"]))
+
+    def action_browse_chat(self) -> None:
+        session = self._get_selected_session()
+        if not session:
+            return
+        if _BROWSE_LAYOUT == "overlay":
+            self.push_screen(ChatScreen(session))
+        else:
+            self._populate_chat_panel(session)
+            self.query_one("#chat-panel", RichLog).focus()
 
 
 def _check_projects_dir() -> None:
