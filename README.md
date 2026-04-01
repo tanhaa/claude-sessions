@@ -15,6 +15,15 @@ uv run claude_sessions.py
 
 ## Install globally
 
+From GitHub (no clone needed):
+
+```
+uv tool install git+https://github.com/tanhaa/claude-sessions
+claude-sessions
+```
+
+Or from a local clone:
+
 ```
 uv tool install .
 claude-sessions
