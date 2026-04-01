@@ -1,7 +1,7 @@
 """
 Claude Session Browser — browse and resume Claude Code sessions across all projects.
 Usage: claude-sessions
-Controls: ↑/↓ navigate · Enter resume · v browse chat · / search · x hide project · p pin project · c clear filters · q quit
+Controls: ↑/↓ navigate · Enter resume · v show/hide chat · b side/bottom · / search · x hide project · p pin project · c clear filters · q quit
 """
 from __future__ import annotations
 
@@ -23,6 +23,8 @@ from textual.containers import Horizontal
 from textual.screen import Screen
 from textual.widgets import DataTable, Footer, Input, Label, RichLog
 
+
+# ── Config ────────────────────────────────────────────────────────────────────
 
 PROJECTS_DIR = os.path.expanduser("~/.claude/projects")
 _XDG_CONFIG_HOME = os.environ.get("XDG_CONFIG_HOME") or os.path.expanduser("~/.config")
@@ -98,6 +100,9 @@ _BROWSE_LAYOUT: str = _cfg["browse_layout"]  # "panel" | "overlay"
 
 _MAX_CHAT_MSG_CHARS: int = 3000  # max chars shown per message in the chat browser
 
+
+# ── Paths & security helpers ──────────────────────────────────────────────────
+
 _current_uid = os.getuid()
 
 _UUID_RE = re.compile(
@@ -127,6 +132,8 @@ def decode_project_path(folder_name: str) -> str | None:
     fallback = "/" + folder_name.lstrip("-").replace("-", "/")
     return fallback if _is_under_home(fallback) else None
 
+
+# ── Session data ──────────────────────────────────────────────────────────────
 
 def _extract_text(content: object, limit: int = MAX_PREVIEW) -> str:
     """Extract plain text from a JSONL message content field, capped at *limit* chars."""
@@ -281,6 +288,8 @@ def load_chat_messages(filepath: str) -> list[dict]:
     return messages
 
 
+# ── Filter state ──────────────────────────────────────────────────────────────
+
 def load_filter() -> tuple[set[str], set[str], str]:
     """Return (hidden_projects, pinned_projects, panel_position)."""
     try:
@@ -310,6 +319,8 @@ def save_filter(hidden: set[str], pinned: set[str], panel_position: str = "side"
         pass
 
 
+# ── Chat rendering ────────────────────────────────────────────────────────────
+
 def _render_chat_into(log: RichLog, messages: list[dict]) -> None:
     """Write formatted chat messages into a RichLog widget."""
     if not messages:
@@ -322,6 +333,8 @@ def _render_chat_into(log: RichLog, messages: list[dict]) -> None:
         log.write(Text(f"─── {label} " + "─" * max(0, 44 - len(label)), style="bold"))
         log.write(Text(msg["text"]))
 
+
+# ── UI ────────────────────────────────────────────────────────────────────────
 
 class ChatScreen(Screen):
     """Full-screen chat browser for a single session (overlay mode)."""
@@ -497,6 +510,8 @@ class SessionBrowser(App):
             split.remove_class("panel-bottom")
             split.styles.layout = "horizontal"
 
+    # ── filtering & table ─────────────────────────────────────────────────────
+
     def _apply_filters(self, search: str = "") -> None:
         sessions = self.all_sessions
         if self.pinned_projects:
@@ -546,6 +561,8 @@ class SessionBrowser(App):
         self._apply_filters(search=event.value.strip())
         self._refresh_table()
 
+    # ── actions ───────────────────────────────────────────────────────────────
+
     def action_focus_search(self) -> None:
         self.query_one("#search-bar", Input).focus()
 
@@ -576,6 +593,8 @@ class SessionBrowser(App):
         self.pinned_projects.clear()
         save_filter(self.hidden_projects, self.pinned_projects, self.panel_position)
         self._refilter_and_refresh()
+
+    # ── selection & chat panel ────────────────────────────────────────────────
 
     def _get_selected_session(self) -> dict | None:
         table = self.query_one(DataTable)
@@ -627,6 +646,8 @@ class SessionBrowser(App):
         self._apply_panel_position()
         save_filter(self.hidden_projects, self.pinned_projects, self.panel_position)
 
+
+# ── Launch ────────────────────────────────────────────────────────────────────
 
 def _check_projects_dir() -> None:
     """Verify PROJECTS_DIR resolves inside ~ and is owned by the current user."""
