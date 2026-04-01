@@ -2,6 +2,11 @@
 
 TUI browser for Claude Code sessions. Browse and resume sessions across all projects.
 
+## Requirements
+
+- [uv](https://docs.astral.sh/uv/getting-started/installation/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
+- [Claude Code](https://claude.ai/code) CLI (`claude`) on your PATH
+
 ## Run
 
 ```
@@ -21,6 +26,12 @@ After editing source, reinstall with:
 
 ```
 uv tool install . --reinstall
+```
+
+## Testing
+
+```
+uv run --extra dev pytest tests/ -q
 ```
 
 ## Controls

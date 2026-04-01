@@ -39,6 +39,24 @@ _CONFIG_DEFAULTS: dict = {
 }
 
 
+def _validate_config_types(merged: dict) -> dict:
+    """Return a copy of *merged* with per-key type checking; bad values fall back to defaults."""
+    result = dict(merged)
+    for key, default in _CONFIG_DEFAULTS.items():
+        val = result[key]
+        if default is None:
+            # Accepts None or a non-bool int (max_days).
+            if not (val is None or (isinstance(val, int) and not isinstance(val, bool))):
+                result[key] = default
+        elif isinstance(default, int):
+            if not (isinstance(val, int) and not isinstance(val, bool)):
+                result[key] = default
+        elif isinstance(default, str):
+            if not isinstance(val, str):
+                result[key] = default
+    return result
+
+
 def _load_config() -> dict:
     try:
         with open(_CONFIG_FILE, encoding="utf-8") as fh:
@@ -47,7 +65,7 @@ def _load_config() -> dict:
             return dict(_CONFIG_DEFAULTS)
         merged = dict(_CONFIG_DEFAULTS)
         merged.update({k: v for k, v in data.items() if k in _CONFIG_DEFAULTS})
-        return merged
+        return _validate_config_types(merged)
     except FileNotFoundError:
         try:
             os.makedirs(os.path.dirname(_CONFIG_FILE), exist_ok=True)
@@ -423,7 +441,11 @@ def _launch_claude(claude_bin: str, uuid: str, safe_cwd: str | None) -> None:
     cmd = [claude_bin, "--resume", uuid]
     if _LAUNCH_MODE == "replace":
         if safe_cwd:
-            os.chdir(safe_cwd)
+            try:
+                os.chdir(safe_cwd)
+            except OSError as exc:
+                print(f"Error: cannot chdir to {safe_cwd}: {exc}", file=sys.stderr)
+                sys.exit(1)
         try:
             os.execvp(claude_bin, cmd)
         except OSError as exc:
