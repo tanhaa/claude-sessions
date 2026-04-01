@@ -21,7 +21,7 @@ from textual.app import App, ComposeResult
 from textual.binding import Binding
 from textual.containers import Horizontal
 from textual.screen import Screen
-from textual.widgets import DataTable, Footer, Input, Label, RichLog
+from textual.widgets import DataTable, Footer, Input, Label, RichLog, Static
 
 
 # ── Config ────────────────────────────────────────────────────────────────────
@@ -319,6 +319,11 @@ def save_filter(hidden: set[str], pinned: set[str], panel_position: str = "side"
         pass
 
 
+# ── UI constants ─────────────────────────────────────────────────────────────
+
+_LOGO = " ≡  ──\n ≡  ──▶\n ≡  ──"
+
+
 # ── Chat rendering ────────────────────────────────────────────────────────────
 
 def _render_chat_into(log: RichLog, messages: list[dict]) -> None:
@@ -376,7 +381,19 @@ class SessionBrowser(App):
         background: $surface;
     }
 
+    #top-bar {
+        height: 3;
+    }
+
+    #logo {
+        width: auto;
+        height: 3;
+        padding: 0 1;
+        color: $accent;
+    }
+
     #search-bar {
+        width: 1fr;
         height: 3;
         border: tall $accent;
         margin: 0 0 0 0;
@@ -472,7 +489,9 @@ class SessionBrowser(App):
         self._chat_panel_uuid: str | None = None
 
     def compose(self) -> ComposeResult:
-        yield Input(placeholder="  Search sessions...", id="search-bar")
+        with Horizontal(id="top-bar"):
+            yield Static(_LOGO, id="logo")
+            yield Input(placeholder="  Search sessions...", id="search-bar")
         if _BROWSE_LAYOUT == "panel":
             with Horizontal(id="browse-split"):
                 yield DataTable(id="table", cursor_type="row", zebra_stripes=True)

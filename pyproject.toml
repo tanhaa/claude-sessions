@@ -1,7 +1,10 @@
 [project]
 name = "claude-sessions"
-version = "0.2.1"
+version = "0.2.2"
 description = "TUI browser for Claude Code sessions"
+authors = [{ name = "Amit Malhotra" }]
+license = { text = "MIT" }
+readme = "README.md"
 requires-python = ">=3.11"
 dependencies = ["textual"]
 
