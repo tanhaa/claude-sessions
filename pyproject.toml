@@ -1,0 +1,19 @@
+[project]
+name = "claude-sessions"
+version = "0.1.0"
+description = "TUI browser for Claude Code sessions"
+requires-python = ">=3.11"
+dependencies = ["textual"]
+
+[project.scripts]
+claude-sessions = "claude_sessions:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[project.optional-dependencies]
+dev = ["pytest"]
+
+[tool.hatch.build.targets.wheel]
+include = ["claude_sessions.py"]

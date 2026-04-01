@@ -1,0 +1,17 @@
+# Python
+__pycache__/
+*.py[cod]
+*.egg-info/
+.eggs/
+
+# Virtual environments
+.venv/
+
+# Build output
+dist/
+
+# Docs (internal)
+docs/
+
+# macOS
+.DS_Store

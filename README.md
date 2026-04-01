@@ -1,0 +1,66 @@
+# claude-sessions
+
+TUI browser for Claude Code sessions. Browse and resume sessions across all projects.
+
+## Run
+
+```
+uv run claude_sessions.py
+```
+
+## Install globally
+
+```
+uv tool install .
+claude-sessions
+```
+
+## Development
+
+After editing source, reinstall with:
+
+```
+uv tool install . --reinstall
+```
+
+## Controls
+
+| Key | Action |
+|-----|--------|
+| `↑/↓` | Navigate |
+| `Enter` | Resume session |
+| `/` | Search |
+| `x` | Hide/unhide current project |
+| `p` | Pin/unpin current project (focus mode) |
+| `c` | Clear all filters |
+| `Esc` | Clear search |
+| `q` | Quit |
+
+Filters persist across runs in `~/.config/claude-sessions/filters.json`.
+
+## Configuration
+
+On first run, a config file is created at `~/.config/claude-sessions/config.json`:
+
+```json
+{
+  "max_sessions": 500,
+  "max_files": 2000,
+  "max_preview": 120,
+  "max_file_bytes": 5000000,
+  "max_line_bytes": 1000000,
+  "max_days": null,
+  "launch_mode": "subprocess"
+}
+```
+
+| Key | Default | Description |
+|-----|---------|-------------|
+| `max_sessions` | `500` | Max sessions shown in the browser |
+| `max_files` | `2000` | Max JSONL files scanned at startup |
+| `max_preview` | `120` | Max characters shown in the preview column |
+| `max_file_bytes` | `5000000` | Skip files larger than this (bytes) |
+| `max_line_bytes` | `1000000` | Skip lines larger than this (bytes) |
+| `max_days` | `null` | Hide sessions older than N days (`null` = show all) |
+| `launch_mode` | `"subprocess"` | `"subprocess"` returns to the TUI after claude exits; `"replace"` hands the terminal to claude and exits to shell when done |
+
