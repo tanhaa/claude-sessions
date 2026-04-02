@@ -2,6 +2,8 @@
 
 TUI browser for Claude Code sessions. Browse and resume sessions across all projects.
 
+![claude-sessions screenshot](claude-sessions.png)
+
 ## Requirements
 
 - [uv](https://docs.astral.sh/uv/getting-started/installation/) — `curl -LsSf https://astral.sh/uv/install.sh | sh`
